@@ -34,6 +34,7 @@ defmodule ClusterEC2.Strategy.Tags do
   use Cluster.Strategy
   import Cluster.Logger
   import SweetXml, only: [sigil_x: 2]
+  require Logger
 
   alias Cluster.Strategy.State
 
@@ -137,9 +138,15 @@ defmodule ClusterEC2.Strategy.Tags do
         case ExAws.request(request, region: region) do
           {:ok, %{body: body}} ->
             resp =
-              body
-              |> SweetXml.xpath(ip_xpath(Keyword.get(config, :ip_type, :private)))
-              |> ip_to_nodename.(app_prefix)
+              try do
+                body
+                |> SweetXml.xpath(ip_xpath(Keyword.get(config, :ip_type, :private)))
+                |> ip_to_nodename.(app_prefix)
+              rescue
+                e ->
+                  Logger.error("Got unexpected (successful) response from AWS: #{inspect body}")
+                  reraise e, __STACKTRACE__
+              end
 
             {:ok, MapSet.new(resp)}
 
@@ -173,7 +180,14 @@ defmodule ClusterEC2.Strategy.Tags do
 
   defp local_instance_tags(body, region) do
     case ExAws.request(body, region: region) do
-      {:ok, body} -> extract_tags(body)
+      {:ok, body} ->
+        try do
+          extract_tags(body)
+        rescue
+          e ->
+            Logger.error("Got unexpected (successful) response from AWS: #{inspect body}")
+            reraise e, __STACKTRACE__
+        end
       {:error, _} -> %{}
     end
   end
