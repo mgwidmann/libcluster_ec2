@@ -50,6 +50,7 @@ defmodule ClusterEC2.Strategy.Tags do
   @impl GenServer
   def init([%State{} = state]) do
     state = state |> Map.put(:meta, MapSet.new())
+    Process.flag(:trap_exit, true)
 
     {:ok, state, 0}
   end
@@ -64,6 +65,7 @@ defmodule ClusterEC2.Strategy.Tags do
       config: Keyword.fetch!(opts, :config),
       meta: MapSet.new([])
     }
+    Process.flag(:trap_exit, true)
 
     {:ok, state, 0}
   end
@@ -115,6 +117,15 @@ defmodule ClusterEC2.Strategy.Tags do
     end
   end
 
+  # Don't exit because of bad data sent by AWS
+  def handle_info({:EXIT, _, {:fatal, {:unexpected_end, _file, _line, _col}}}, state) do
+    {:noreply, state}
+  end
+
+  def handle_info({:EXIT, _, reason}, _state) do
+    {:stop, reason}
+  end
+
   def handle_info(_, state) do
     {:noreply, state}
   end
@@ -144,7 +155,11 @@ defmodule ClusterEC2.Strategy.Tags do
                 |> ip_to_nodename.(app_prefix)
               rescue
                 e ->
-                  Logger.error("Got unexpected (successful) response from AWS: #{inspect body}")
+                  Logger.error("get_nodes rescue - Got unexpected (successful) response from AWS: #{inspect body}")
+                  reraise e, __STACKTRACE__
+              catch
+                e ->
+                  Logger.error("get_nodes catch - Got unexpected (successful) response from AWS: #{inspect body}")
                   reraise e, __STACKTRACE__
               end
 
@@ -185,7 +200,11 @@ defmodule ClusterEC2.Strategy.Tags do
           extract_tags(body)
         rescue
           e ->
-            Logger.error("Got unexpected (successful) response from AWS: #{inspect body}")
+            Logger.error("defp local_instance_tags rescue - Got unexpected (successful) response from AWS: #{inspect body}")
+            reraise e, __STACKTRACE__
+        catch
+          e ->
+            Logger.error("defp local_instance_tags catch - Got unexpected (successful) response from AWS: #{inspect body}")
             reraise e, __STACKTRACE__
         end
       {:error, _} -> %{}
